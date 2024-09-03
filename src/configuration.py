@@ -6,6 +6,7 @@ from keboola.component.exceptions import UserException
 class Configuration(BaseModel):
     api_token: str = Field(alias="#api_token")
     table_name: str = Field()
+    debug: bool = False
 
     def __init__(self, **data):
         try:
