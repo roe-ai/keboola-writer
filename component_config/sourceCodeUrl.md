@@ -1,1 +1,1 @@
-git@github.com:roe-ai/keboola-writer.git
+https://github.com/roe-ai/keboola-writer

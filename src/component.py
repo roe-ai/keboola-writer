@@ -2,25 +2,26 @@
 Template Component main class.
 
 """
+
 import csv
-from datetime import datetime
 import logging
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
+import requests
 
 from configuration import Configuration
 
 
 class Component(ComponentBase):
     """
-        Extends base class for general Python components. Initializes the CommonInterface
-        and performs configuration validation.
+    Extends base class for general Python components. Initializes the CommonInterface
+    and performs configuration validation.
 
-        For easier debugging the data folder is picked up by default from `../data` path,
-        relative to working directory.
+    For easier debugging the data folder is picked up by default from `../data` path,
+    relative to working directory.
 
-        If `debug` parameter is present in the `config.json`, the default logger is set to verbose DEBUG mode.
+    If `debug` parameter is present in the `config.json`, the default logger is set to verbose DEBUG mode.
     """
 
     def __init__(self):
@@ -35,53 +36,69 @@ class Component(ComponentBase):
         # check for missing configuration parameters
         params = Configuration(**self.configuration.parameters)
 
-        # Access parameters in configuration
-        if params.print_hello:
-            logging.info("Hello World")
+        url = "https://api.roe-ai.com/v1/database/query/"
+        headers = {"Authorization": f"Bearer {params.api_token}"}
 
-        # get input table definitions
         input_tables = self.get_input_tables_definitions()
         for table in input_tables:
-            logging.info(f'Received input table: {table.name} with path: {table.full_path}')
+            logging.info(
+                f"Received input table: {table.name} with path: {table.full_path}"
+            )
 
         if len(input_tables) == 0:
             raise UserException("No input tables found")
 
-        # get last state data/in/state.json from previous run
-        previous_state = self.get_state_file()
-        logging.info(previous_state.get('some_parameter'))
-
-        # Create output table (Table definition - just metadata)
-        table = self.create_out_table_definition('output.csv', incremental=True, primary_key=['timestamp'])
-
-        # get file path of the table (data/out/tables/Features.csv)
-        out_table_path = table.full_path
-        logging.info(out_table_path)
-
-        # Add timestamp column and save into out_table_path
         input_table = input_tables[0]
-        with (open(input_table.full_path, 'r') as inp_file,
-              open(table.full_path, mode='wt', encoding='utf-8', newline='') as out_file):
+        with open(input_table.full_path, "r") as inp_file:
+            # Write logic writing table using query to the url
             reader = csv.DictReader(inp_file)
+            columns = reader.fieldnames
 
-            columns = list(reader.fieldnames)
-            # append timestamp
-            columns.append('timestamp')
+            # Prepare the column string for the CREATE TABLE query
+            colstr = "("
+            for col in columns:
+                colstr += f"`{col}` String, "
+            colstr = colstr[:-2] + ")"
 
-            # write result with column added
-            writer = csv.DictWriter(out_file, fieldnames=columns)
-            writer.writeheader()
-            for in_row in reader:
-                in_row['timestamp'] = datetime.now().isoformat()
-                writer.writerow(in_row)
+            # Create table
+            create_query = f"CREATE TABLE IF NOT EXISTS {params.table_name} {colstr} ENGINE = Memory"
+            payload = {"query": create_query}
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                logging.info("Table created successfully in RoeAI.")
+            else:
+                logging.error(
+                    f"Failed to create table in RoeAI. Status code: {response.status_code}"
+                )
+                raise UserException("Failed to create table in RoeAI")
 
-        # Save table manifest (output.csv.manifest) from the Table definition
-        self.write_manifest(table)
+            # Insert data
+            def _insert_batch(batch):
+                values_str = ", ".join(batch)
+                insert_query = f"INSERT INTO {params.table_name} VALUES {values_str}"
+                payload = {"query": insert_query}
+                response = requests.post(url, json=payload, headers=headers)
+                if response.status_code != 200:
+                    logging.error(
+                        f"Failed to insert batch. Status code: {response.status_code}"
+                    )
+                    raise UserException("Failed to insert data into RoeAI")
 
-        # Write new state - will be available next run
-        self.write_state_file({"some_state_parameter": "value"})
+            batch_size = 1000
+            batch = []
+            for row in reader:
+                values = tuple(row.values())
+                batch.append(str(values))
 
-        # ####### EXAMPLE TO REMOVE END
+                if len(batch) >= batch_size:
+                    _insert_batch(batch)
+                    batch = []
+
+            # Insert any remaining rows
+            if batch:
+                _insert_batch(batch)
+
+            logging.info("Data insertion completed.")
 
 
 """

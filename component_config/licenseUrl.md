@@ -1,1 +1,1 @@
-git@github.com:roe-ai/keboola-writer.git/blob/master/LICENSE.md
+https://www.getroe.ai/terms-of-use

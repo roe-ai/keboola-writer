@@ -1,1 +1,1 @@
-git@github.com:roe-ai/keboola-writer.git/blob/master/README.md
+https://docs.roe-ai.com/introduction
