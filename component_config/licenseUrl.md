@@ -1,0 +1,1 @@
+git@github.com:roe-ai/keboola-writer.git/blob/master/LICENSE.md
